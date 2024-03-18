@@ -1,0 +1,87 @@
+name: Compile OpenWrt
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0 # 确保完整克隆仓库
+
+    - name: Setup Environment
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive apt update -y
+        sudo DEBIAN_FRONTEND=noninteractive apt full-upgrade -y
+        sudo DEBIAN_FRONTEND=noninteractive apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang clangd cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+          g++-multilib git gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev libglib2.0-dev \
+          libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5 libncursesw5-dev libreadline-dev \
+          libssl-dev libtool lld lldb lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python2.7 \
+          python3 python3-pip python3-ply python3-docutils qemu-utils re2c rsync scons squashfs-tools subversion swig \
+          texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+
+    - name: Clone OpenWrt Source
+      run: |
+        git clone https://github.com/openwrt/openwrt.git
+
+    - name: Copy .config and feeds.conf.default files
+      run: |
+        cp .config openwrt/
+        cp feeds.conf.default openwrt/
+
+    - name: Update and Install Feeds
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Pre-download packages
+      run: |
+        cd openwrt
+        make download -j8 V=s
+
+    - name: Check for incomplete downloads
+      run: |
+        cd openwrt
+        find dl -size -1024c -exec ls -l {} \;
+
+    - name: Remove incomplete downloads and re-download
+      run: |
+        cd openwrt
+        find dl -size -1024c -exec rm -f {} \;
+        make download -j8 V=s
+        while find dl -size -1024c -exec rm -f {} \; do
+          make download -j8 V=s
+          find dl -size -1024c -exec ls -l {} \; || break
+        done
+        echo "All files downloaded successfully."
+
+    - name: Compile OpenWrt
+      run: |
+        cd openwrt
+        make -j$(nproc) || make -j1 V=s # 如果并行编译失败，尝试单线程编译以便于错误调查
+        
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.COULD_BUILD }}
+      with:
+        tag_name: ${{ github.run_id }}
+        release_name: Release-${{ github.run_id }}
+        draft: false
+        prerelease: false
+
+    - name: Upload the compiled file to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.COULD_BUILD }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }} 
+        asset_path: ./openwrt/bin/targets/.../openwrt-...-squashfs-sysupgrade.bin # 示例路径，请根据实际情况修改
+        asset_name: openwrt-sysupgrade-${{ github.run_id }}.bin # 文件名，也可以根据需要进行修改
+        asset_content_type: application/octet-stream
