@@ -8,9 +8,19 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3 # 更新到最新版本
       with:
         fetch-depth: 0 # 确保完整克隆仓库
+
+    - name: Cache OpenWrt build dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          openwrt/dl
+          openwrt/feeds
+        key: ${{ runner.os }}-openwrt-${{ hashFiles('**/feeds.conf', '**/.config') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-
 
     - name: Setup Environment
       run: |
@@ -44,19 +54,13 @@ jobs:
         cd openwrt
         make download -j8 V=s
 
-    - name: Check for incomplete downloads
-      run: |
-        cd openwrt
-        find dl -size -1024c -exec ls -l {} \;
-
     - name: Remove incomplete downloads and re-download
       run: |
         cd openwrt
-        find dl -size -1024c -exec rm -f {} \;
+        find dl -size -1024c -exec rm -f {} \; -exec echo Removed incomplete file {} \;
         make download -j8 V=s
-        while find dl -size -1024c -exec rm -f {} \; do
+        while find dl -size -1024c -exec rm -f {} \; -exec echo Removed incomplete file {} \; do
           make download -j8 V=s
-          find dl -size -1024c -exec ls -l {} \; || break
         done
         echo "All files downloaded successfully."
 
@@ -67,7 +71,7 @@ jobs:
         
     - name: Create Release
       id: create_release
-      uses: actions/create-release@v1
+      uses: actions/create-release@v1 # 考虑更新到最新版本，如果有的话
       env:
         GITHUB_TOKEN: ${{ secrets.COULD_BUILD }}
       with:
@@ -77,7 +81,7 @@ jobs:
         prerelease: false
 
     - name: Upload the compiled file to Release
-      uses: actions/upload-release-asset@v1
+      uses: actions/upload-release-asset@v1 # 考虑更新到最新版本，如果有的话
       env:
         GITHUB_TOKEN: ${{ secrets.COULD_BUILD }}
       with:
